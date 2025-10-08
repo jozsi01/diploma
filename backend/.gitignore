@@ -1,0 +1,7 @@
+*.docx
+*.jpg
+*.png
+*.gif
+*.html
+*.venv/
+__pycache__/
