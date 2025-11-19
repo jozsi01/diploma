@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Column, String, DateTime, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, BOOLEAN
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.sql import func
 
@@ -46,7 +46,7 @@ class HtmlFile(Base):
     doc_id = Column(UUID(as_uuid=True), ForeignKey('documents.id', ondelete='CASCADE'), nullable=False, unique=True)
     file_name = Column(String(255), nullable=False)
     file_path = Column(Text, nullable=False)
-
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -67,7 +67,7 @@ class PdfFile(Base):
     doc_id = Column(UUID(as_uuid=True), ForeignKey('documents.id', ondelete='CASCADE'), nullable=False, unique=True)
     file_name = Column(String(255), nullable=False)
     file_path = Column(Text, nullable=False)
-
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -89,3 +89,26 @@ class User(Base):
 
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}')>"
+    
+class SharedDocument(Base):
+    __tablename__ = 'shared_documents'
+
+    invited_user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey('documents.id', ondelete='CASCADE'), primary_key=True)
+    invited_by = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<SharedDocument(document_id={self.document_id}, invited_user_id={self.invited_user_id}, invited_by={self.invited_by})>"
+
+class Comment(Base):
+    __tablename__ = 'comments'
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id = Column(UUID(as_uuid=True), ForeignKey('documents.id', ondelete='CASCADE'), nullable=False)
+    made_by = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    resolved = Column(BOOLEAN, nullable=False, default=False)
+    def __repr__(self):
+        return f"<Comment(id={self.id}, document_id={self.document_id}, made_by={self.made_by})>"

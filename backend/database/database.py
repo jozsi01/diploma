@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine, URL
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker, declarative_base,scoped_session
 
 
 db_url = URL.create(
@@ -17,7 +17,6 @@ DATABASE_URL = "postgresql://postgres:krokodil@localhost:5432/editor_db"
 engine = create_engine(DATABASE_URL, echo=True)  # echo=True shows SQL queries
 
 # Create a configured "Session" class
-SessionLocal = sessionmaker(bind=engine)
-
+SessionLocal = scoped_session(sessionmaker(bind=engine))
 # Base class for models
 Base = declarative_base()

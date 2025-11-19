@@ -5,3 +5,4 @@
 *.html
 *.venv/
 __pycache__/
+documents/

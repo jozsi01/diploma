@@ -12,6 +12,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tiptap/extension-bubble-menu": "^3.10.1",
+    "@tiptap/extension-highlight": "^3.7.2",
+    "@tiptap/extension-image": "^3.10.5",
     "@tiptap/extension-list": "^3.6.5",
     "@tiptap/extension-table": "^3.6.5",
     "@tiptap/extension-table-cell": "^3.6.5",
@@ -20,7 +23,8 @@
     "@tiptap/extension-text-align": "^3.6.5",
     "@tiptap/pm": "^3.6.2",
     "@tiptap/starter-kit": "^3.6.2",
-    "@tiptap/vue-3": "^3.6.2",
+    "@tiptap/vue-3": "^3.7.2",
+    "axios": "^1.12.2",
     "lucide-vue-next": "^0.544.0",
     "pinia": "^3.0.3",
     "vue": "^3.5.22",

@@ -40,20 +40,24 @@ def register():
 def login():
     
     session = SessionLocal()
+    
     data = request.get_json()
     username = data.get("username")
     password = data.get("password")
-
-    user = session.query(User).filter_by(username=username).first()
-    if not user or not check_password_hash(user.password_hash, password):
-        return jsonify({"msg": "Invalid username or password"}), 401
-
-    token = create_access_token(identity=user.id)
-
-    # Set the JWT cookies in the response
-    resp = jsonify({'login': True})
-    set_access_cookies(resp, token)
-    return resp, 200
+    try:
+        user = session.query(User).filter_by(username=username).first()
+        if not user or not check_password_hash(user.password_hash, password):
+            return jsonify({"msg": "Invalid username or password"}), 401
+        token = create_access_token(identity=user.id)
+        # Set the JWT cookies in the response
+        resp = jsonify({'login': True})
+        set_access_cookies(resp, token)
+        return resp, 200
+    except Exception as e:
+        return jsonify({"msg": "Error occurred while logging in"}), 500
+    finally:
+        session.close()
+        
 
 @auth_bp.route('/logout', methods=['POST'])
 def logout():

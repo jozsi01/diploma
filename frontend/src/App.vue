@@ -21,8 +21,8 @@ import Sidebar from '../components/Sidebar.vue'
 .content {
   flex: 1;
   transition: margin-left 0.3s ease;
-  padding: 20px;
-  background-color: #f8f9fa;
+  padding: 5px 0px;
+  overflow: hidden;
 }
 </style>
 
