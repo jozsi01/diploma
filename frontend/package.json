@@ -12,6 +12,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^7.1.0",
+    "@fortawesome/free-brands-svg-icons": "^7.1.0",
+    "@fortawesome/free-regular-svg-icons": "^7.1.0",
+    "@fortawesome/free-solid-svg-icons": "^7.1.0",
+    "@fortawesome/vue-fontawesome": "^3.1.2",
+    "@kalimahapps/vue-icons": "^1.9.5",
     "@tiptap/extension-bubble-menu": "^3.10.1",
     "@tiptap/extension-highlight": "^3.7.2",
     "@tiptap/extension-image": "^3.10.5",

@@ -24,7 +24,7 @@ def fetch_all_documents_for_user(session):
 # -------------------------------------------------------
 # Convert a file between formats (e.g., DOCX → HTML)
 # -------------------------------------------------------
-def convert_file(file, filename, input_format, output_format,cwd=os.getcwd()):
+def convert_file(file, filename, input_format, output_format, cwd=os.getcwd()):
     if hasattr(file, 'read'):
         file.seek(0)
         content = file.read()
@@ -32,37 +32,59 @@ def convert_file(file, filename, input_format, output_format,cwd=os.getcwd()):
         content = file
 
     filename = filename.rsplit('.', 1)[0]
-    print("Temp path: ",f"{cwd}/temp.{input_format}")
-    with open(f"{cwd}/temp.{input_format}", "wb") as f:
+    
+    input_path = os.path.join(cwd, f"temp.{input_format}")
+    odt_path = os.path.join(cwd, "temp.odt")
+    output_path = os.path.join(cwd, f"temp.{output_format}")
+
+    print("Temp path: ", input_path)
+    
+    with open(input_path, "wb") as f:
         f.write(content)
 
     try:
         # Convert to intermediate ODT first
         first_conv = subprocess.run([
-            'soffice', '--headless', '--convert-to', 'odt', f'temp.{input_format}'
-        ], check=True, text=True, capture_output=True,cwd=cwd)
-
+            'soffice',
+            '--headless',
+            '--norestore',
+            '--nofirststartwizard',
+            '-env:UserInstallation=file:///tmp/libreoffice-profile',
+            '--convert-to', 'odt',
+            f'temp.{input_format}'
+        ], check=True, text=True, capture_output=True, cwd=cwd)
 
         # Convert from ODT to desired format
         second_conv = subprocess.run([
-            'soffice', '--headless', '--convert-to', f'{output_format}', 'temp.odt'
-        ], check=True, text=True, capture_output=True,cwd=cwd)
+            'soffice',
+            '--headless',
+            '--norestore',
+            '--nofirststartwizard',
+            '-env:UserInstallation=file:///tmp/libreoffice-profile',
+            '--convert-to', output_format,
+            'temp.odt'
+        ], check=True, text=True, capture_output=True, cwd=cwd)
 
         print("Conversion output:", first_conv.stdout, second_conv.stdout)
         print("Conversion errors:", first_conv.stderr, second_conv.stderr)
 
-        with open(f'{cwd}/temp.{output_format}', 'rb') as f:
+        with open(output_path, 'rb') as f:
             converted_content = f.read()
             return converted_content, f'{filename}.{output_format}'
+
     except subprocess.CalledProcessError as e:
         print("Error during conversion:", e)
         return None, None
+
     finally:
         if hasattr(file, 'seek'):
             file.seek(0)
-        for ext in [input_format, 'odt', output_format]:
-            if os.path.exists(f'{cwd}/temp.{ext}'):
-                os.remove(f'{cwd}/temp.{ext}')
+
+        for temp_path in [input_path, odt_path, output_path]:
+            print(f"Checking for temp file: {temp_path}")
+            if os.path.exists(temp_path):
+                print(f"Removing temp file: {temp_path}")
+                os.remove(temp_path)
 
 
 # -------------------------------------------------------
@@ -88,8 +110,9 @@ def create_document_for_user(session, file, filename):
    
     path = save_document(file.read(), filename, doc_id)
     html_file, html_filename = convert_file(file, filename, 'docx', 'html',os.path.dirname(path))
-
-    html_file = format_image_srcs(html_file, base_url=BACKEND_PATH + os.path.dirname(path))
+    base_url = BACKEND_PATH + os.path.dirname(path)
+    base_url = base_url.replace('\\', '/')
+    html_file = format_image_srcs(html_file, base_url=base_url)
     path_html = save_document(html_file, html_filename, doc_id)
 
     new_document = Document(
@@ -161,12 +184,29 @@ def update_docx(session, doc_id):
         html_content = f.read()
 
     html_file_obj = BytesIO(html_content)
-    docx_content, _ = convert_file(html_file_obj, html.file_name, 'html', 'docx')
+    docx_content, _ = convert_file(html_file_obj, html.file_name, 'html', 'docx',os.path.dirname(html.file_path))
     if not docx_content:
         raise FileNotFoundError("DOCX conversion failed.")
 
     with open(html.file_path.replace('.html', '.docx'), 'wb') as f:
         f.write(docx_content)
+
+def update_pdf(session, doc_id):
+    html = session.query(HtmlFile).filter_by(doc_id=doc_id, user_id=current_user.id).one_or_none()
+    if not html:
+        raise FileNotFoundError("HTML file not found for the given document ID.")
+    print("HTML File Path for PDF:", html.file_path)
+    with open(html.file_path, 'rb') as f:
+        html_content = f.read()
+
+    html_file_obj = BytesIO(html_content)
+    html_file_obj.seek(0)
+    pdf_content, _ = convert_file(html_file_obj, html.file_name, 'html', 'pdf',os.path.dirname(html.file_path))
+    if not pdf_content:
+        raise FileNotFoundError("PDF conversion failed.")
+
+    with open(html.file_path.replace('.html', '.pdf'), 'wb') as f:
+        f.write(pdf_content)
 
 
 # -------------------------------------------------------

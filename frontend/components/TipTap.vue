@@ -64,6 +64,9 @@
     <button class="manageButtons" @click="exportDocument">
       <FileType :size="32" />
     </button>
+    <button class="manageButtons" @click="exportPDF">
+      <i class="fa fa-file-pdf-o" style="font-size:30px"></i>
+    </button>
 
 
   </div>
@@ -93,6 +96,7 @@ import { BubbleMenu } from '@tiptap/vue-3/menus'
 import { useStore } from '../store/store.js';
 import Comment from '../helper/Comment.js'
 import { ref } from 'vue';
+
 import Image from '@tiptap/extension-image';
 
 const store = useStore();
@@ -122,6 +126,21 @@ async function exportDocument() {
     console.log(data);
   } catch (error) {
     console.error('Error exporting document:', error);
+  }
+}
+
+async function exportPDF() {
+  console.log("Exporting PDF...")
+  try {
+    const html = editor.value.getHTML();
+
+    const { data } = await customAxios.put(`/documents/${props.document_id}/pdf`, {
+      html: html,
+    });
+    console.log('PDF exported successfully');
+    console.log(data);
+  } catch (error) {
+    console.error('Error exporting PDF:', error); 
   }
 }
 

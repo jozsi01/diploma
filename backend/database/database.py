@@ -1,8 +1,8 @@
 from sqlalchemy import create_engine, URL
 from sqlalchemy.orm import sessionmaker, declarative_base,scoped_session
+import os
 
-
-db_url = URL.create(
+db_url =  URL.create(
     drivername="postgresql",
     username="postgres",
     password="krokodil",
@@ -11,7 +11,8 @@ db_url = URL.create(
     database="editor_db"
 )
 
-DATABASE_URL = "postgresql://postgres:krokodil@localhost:5432/editor_db"
+
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:krokodil@localhost:5432/editor_db")
 
 # Create engine
 engine = create_engine(DATABASE_URL, echo=True)  # echo=True shows SQL queries

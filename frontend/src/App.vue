@@ -16,12 +16,13 @@ import Sidebar from '../components/Sidebar.vue'
   display: flex;
   height: 100vh;
   width: 100%;
+  padding: 0;
 }
 
 .content {
   flex: 1;
   transition: margin-left 0.3s ease;
-  padding: 5px 0px;
+  padding: 0px;
   overflow: hidden;
 }
 </style>

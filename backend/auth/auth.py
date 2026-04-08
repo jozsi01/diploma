@@ -44,8 +44,10 @@ def login():
     data = request.get_json()
     username = data.get("username")
     password = data.get("password")
+    
     try:
         user = session.query(User).filter_by(username=username).first()
+        print("user", user)
         if not user or not check_password_hash(user.password_hash, password):
             return jsonify({"msg": "Invalid username or password"}), 401
         token = create_access_token(identity=user.id)

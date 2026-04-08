@@ -12,6 +12,7 @@ export default defineConfig({
     vueDevTools()
   ],
   server: {
+    allowedHosts: ['diploma.bozsik-services.me', 'localhost'],
     proxy: {
       // forward any request starting with /api to your backend
       '/api': {
@@ -28,4 +29,5 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+
 })
