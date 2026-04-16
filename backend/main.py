@@ -2,7 +2,7 @@ import os
 from flask import Flask, jsonify,request, send_file, send_from_directory,abort
 import subprocess
 from flask_cors import CORS
-from database.db_operations import delete_document,is_owner, fetch_all_documents_for_user, get_other_users,update_docx, get_docx,create_document_for_user,get_html_for_edit,save_html_content
+from database.db_operations import delete_document,is_owner, fetch_all_documents_for_user, get_other_users,update_docx,update_pdf, get_docx,create_document_for_user,get_html_for_edit,save_html_content
 from flask_jwt_extended import (
     JWTManager, jwt_required, create_access_token,
     get_jwt_identity, set_access_cookies, unset_jwt_cookies, get_jwt,current_user
@@ -36,7 +36,7 @@ CORS(app, supports_credentials=True, origins=["http://localhost:5173"])
 Base.metadata.create_all(bind=engine)
 
 
-@app.route('/documents/<user_id>/<doc_id>/<filename>')
+@app.route('/api/documents/<user_id>/<doc_id>/<filename>')
 def serve_document_image(user_id, doc_id, filename):
     print("Serving image:", doc_id, filename)
     folder = os.path.join('documents', f'{user_id}', doc_id)
@@ -156,6 +156,35 @@ def export_docx(doc_id):
         session.rollback()
         print(f"Error exporting DOCX: {e}")
         return jsonify({'error': 'Failed to export DOCX'}), 500
+
+    finally:
+        session.close()
+
+# -------------------------------
+# Regenerate DOCX from HTML
+# -------------------------------
+@app.route('/api/documents/<string:doc_id>/pdf', methods=['PUT'])
+@jwt_required()
+def export_pdf(doc_id):
+    session = SessionLocal()
+    try:
+        html_content = request.json.get('html')
+        if not html_content:
+            return jsonify({'error': 'HTML content is required'}), 400
+
+        success =save_html_content(session, doc_id, html_content)
+        if success[1] != 200:
+            session.rollback()
+            return success
+        update_pdf(session, doc_id)
+        session.commit()
+
+        return jsonify({'message': 'Document updated successfully'}), 200
+
+    except Exception as e:
+        session.rollback()
+        print(f"Error exporting PDF: {e}")
+        return jsonify({'error': 'Failed to export PDF'}), 500
 
     finally:
         session.close()

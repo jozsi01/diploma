@@ -8,8 +8,7 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    vue(),
-    vueDevTools()
+    vue()
   ],
   server: {
     allowedHosts: ['diploma.bozsik-services.me', 'localhost'],

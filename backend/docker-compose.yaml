@@ -18,13 +18,22 @@ services:
   backend:
     image: diploma-backend:1.1
     restart: unless-stopped
-    ports:
-      - "5000:5000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-appdb}
+    volumes: 
+      - doc-storage:/app/documents
     depends_on:
       db:
         condition: service_healthy
+    
+
+  frontend:
+    image: diploma-frontend:1.1
+    ports: 
+      - "5173:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:
+  doc-storage:

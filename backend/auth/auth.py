@@ -9,7 +9,7 @@ from flask import Flask
 from flask import jsonify
 
 from flask_jwt_extended import create_access_token, unset_jwt_cookies
-
+import logging
 from flask_jwt_extended import set_access_cookies
 from database.database import SessionLocal
 
@@ -17,6 +17,7 @@ auth_bp = Blueprint('auth', __name__)
 
 @auth_bp.route("/register", methods=["POST"])
 def register():
+    logging.info("Register endpoint was hit")
     session = SessionLocal()
     data = request.get_json()
     username = data.get("username")
@@ -38,7 +39,7 @@ def register():
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    
+    logging.info("Login endpoint was hit")
     session = SessionLocal()
     
     data = request.get_json()
