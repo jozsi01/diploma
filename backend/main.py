@@ -1,8 +1,10 @@
 import os
-from flask import Flask, jsonify,request, send_file, send_from_directory,abort
+import mimetypes
+from io import BytesIO
+from flask import Flask, jsonify,request, send_file, abort
 import subprocess
 from flask_cors import CORS
-from database.db_operations import delete_document,is_owner, fetch_all_documents_for_user, get_other_users,update_docx,update_pdf, get_docx,create_document_for_user,get_html_for_edit,save_html_content
+from database.db_operations import delete_document,is_owner, fetch_all_documents_for_user, get_other_users,update_docx,update_pdf, get_docx,create_document_for_user,get_html_for_edit,save_html_content, download_blob_bytes
 from flask_jwt_extended import (
     JWTManager, jwt_required, create_access_token,
     get_jwt_identity, set_access_cookies, unset_jwt_cookies, get_jwt,current_user
@@ -17,40 +19,46 @@ from database.models import User
 from database.database import SessionLocal
 from datetime import datetime, timedelta, timezone
 
-
-
 app = Flask(__name__)
 app.config['JWT_TOKEN_LOCATION'] = ['cookies']
 app.config['JWT_ACCESS_COOKIE_PATH'] = '/'
 app.config['JWT_COOKIE_CSRF_PROTECT'] = False
-app.config['JWT_COOKIE_DOMAIN'] = 'localhost'
+app.config['JWT_COOKIE_DOMAIN'] = os.environ.get('COOKIE_DOMAIN', 'localhost')
+app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'super-secret')
+app.config['JWT_COOKIE_SECURE'] = True
+app.config['JWT_COOKIE_SAMESITE'] = 'None'
 
-# Set the secret key to sign the JWTs with
-app.config['JWT_SECRET_KEY'] = 'super-secret'
 jwt = JWTManager(app)
 app.register_blueprint(auth_bp, url_prefix='/api/auth')
 app.register_blueprint(collab_bp, url_prefix='/api/collab')
 app.register_blueprint(comments_bp, url_prefix='/api/comments')
 
-CORS(app, supports_credentials=True, origins=["http://localhost:5173"])
+allowed_origins = os.environ.get('ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
+CORS(app, supports_credentials=True, origins=allowed_origins)
+
 Base.metadata.create_all(bind=engine)
 
 
 @app.route('/api/documents/<user_id>/<doc_id>/<filename>')
 def serve_document_image(user_id, doc_id, filename):
-    print("Serving image:", doc_id, filename)
-    folder = os.path.join('documents', f'{user_id}', doc_id)
-    if not os.path.exists(os.path.join(folder, filename)):
-        print("File not found:", os.path.join(folder, filename))
+    blob_name = f"{user_id}/{doc_id}/{filename}"
+    try:
+        blob_bytes = download_blob_bytes(blob_name)
+        mimetype = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+        return send_file(BytesIO(blob_bytes), mimetype=mimetype)
+    except Exception as e:
+        print(f"File not found in blob storage: {blob_name}. Error: {e}")
         abort(404)
-    return send_from_directory(folder, filename)
 
 
 @jwt.user_lookup_loader
 def user_lookup_callback(_jwt_header, jwt_data):
     session = SessionLocal()
-    identity = jwt_data["sub"]
-    return session.query(User).filter_by(id=identity).one_or_none()
+    try:
+        identity = jwt_data["sub"]
+        return session.query(User).filter_by(id=identity).one_or_none()
+    finally:
+        session.close()
  
 
 @app.after_request
@@ -242,11 +250,13 @@ def download_docx(doc_id):
         if docx is None:
             return jsonify({'error': 'DOCX file not found'}), 404
 
-        print("File path:", docx.file_path)
-        return send_from_directory(
-            os.path.dirname(docx.file_path),
-            os.path.basename(docx.file_path),
-            as_attachment=True
+        print("Blob path:", docx.file_path)
+        blob_bytes = download_blob_bytes(docx.file_path)
+        return send_file(
+            BytesIO(blob_bytes),
+            as_attachment=True,
+            download_name=docx.file_name,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         ), 200
 
     except Exception as e:
@@ -309,10 +319,17 @@ def check_if_owner(doc_id):
         return is_owner(session, doc_id)
     except Exception as e:
         return jsonify({'error': 'Failed to check ownership'}), 500
+    finally:
+        session.close()
 
 
+@app.teardown_appcontext
+def cleanup_scoped_session(_exception=None):
+    SessionLocal.remove()
 
-
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'healthy'}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000,debug=True)

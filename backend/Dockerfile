@@ -20,4 +20,4 @@ RUN mkdir -p /tmp/libreoffice-profile && chmod 777 /tmp/libreoffice-profile
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--log-level", "debug", "main:app"]

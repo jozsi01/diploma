@@ -1,0 +1,38 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to ACR
+        run: az acr login --name diplomaregistry
+
+      - name: Build and push frontend image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --push \
+            -t diplomaregistry.azurecr.io/diploma-frontend:${{ github.sha }} \
+            -t diplomaregistry.azurecr.io/diploma-frontend:latest \
+            ./frontend
+
+      - name: Deploy to Container App
+        run: |
+          az containerapp update \
+            --name diploma-frontend \
+            --resource-group diploma \
+            --image diplomaregistry.azurecr.io/diploma-frontend:${{ github.sha }}

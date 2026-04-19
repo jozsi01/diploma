@@ -1,7 +1,6 @@
-import os
 from flask_jwt_extended import jwt_required, current_user
 from flask import Blueprint, jsonify, request
-from database.db_operations import get_shared_documents_by_user, share_document,get_shared_documents_with_user
+from database.db_operations import get_shared_documents_by_user, share_document,get_shared_documents_with_user, save_html_content
 from database.database import SessionLocal
 from database.models import Comment, Document, User, HtmlFile
 from sqlalchemy import and_
@@ -78,19 +77,13 @@ def save_comment():
         if not isInvited:
             return jsonify({'error': 'User is not invited to this document'}), 403
         
-        html= session.query(HtmlFile).filter_by(doc_id=document_id).one_or_none()
-        print("HTML PATH:",html.file_path)
-        with open(html.file_path, 'w', encoding='utf-8') as f:
-            new_content_size = len(html_content.encode('utf-8'))
-            existing_file_size = os.path.getsize(html.file_path)
-            print(f"New content size: {new_content_size}, Existing file size: {existing_file_size}")
-            if new_content_size > existing_file_size:
-                f.write(html_content)
-        return jsonify({'message': 'Comment saved successfully'}, 200)
+        return save_html_content(session, document_id, html_content)
     except Exception as e:
         session.rollback()
         print(f"Error saveing comment: {e}")
         return jsonify({'error': 'Failed to save comment'}), 500
+    finally:
+        session.close()
 
 
 @comments_bp.route('/<string:document_id>', methods=['GET'])

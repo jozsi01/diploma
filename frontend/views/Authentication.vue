@@ -72,7 +72,7 @@ async function sendCredentials() {
             const data = await resp.json();
             console.log(data.msg);
         } else {
-            const data = resp.text();
+            const data = await resp.text();
             console.error('Registration failed:', data);
         }
     }
@@ -86,7 +86,7 @@ async function sendCredentials() {
     justify-content: center;
     align-items: center;
     height: 100vh;
-    border: 1pxx solid rgb(173, 24, 24);
+    border: 1px solid rgb(173, 24, 24);
 }
 
 .authMode {

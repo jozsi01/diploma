@@ -1,23 +1,140 @@
 import os
 import uuid
-import shutil
 import subprocess
 import logging
+import tempfile
 from io import BytesIO
-
+import sys
 from flask import jsonify
+from flask import request
 from flask_jwt_extended import current_user
 from database.models import Document, HtmlFile, User, SharedDocument
 from sqlalchemy import and_
+from azure.core.exceptions import ResourceExistsError
+from azure.storage.blob import BlobServiceClient, ContentSettings
 from html_management import format_image_srcs
+from werkzeug.utils import secure_filename
 
 # Logging konfiguráció
 # A szintet INFO-ra állítjuk, hogy a Docker logokban minden fontos esemény látsszon
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    stream=sys.stdout,
+    force=True
 )
 logger = logging.getLogger(__name__)
+BLOB_CONTAINER_NAME = "documents"
+_blob_service_client = None
+_blob_container_client = None
+
+
+def get_blob_container_client():
+    global _blob_service_client, _blob_container_client
+
+    if _blob_container_client is not None:
+        return _blob_container_client
+
+    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    if not connection_string:
+        raise RuntimeError("AZURE_STORAGE_CONNECTION_STRING is not set")
+
+    if _blob_service_client is None:
+        _blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+
+    container_client = _blob_service_client.get_container_client(BLOB_CONTAINER_NAME)
+    try:
+        container_client.create_container()
+    except ResourceExistsError:
+        pass
+
+    _blob_container_client = container_client
+    return _blob_container_client
+
+
+def build_blob_name(doc_id, filename):
+    user_id_short = str(current_user.id)[:4] if current_user else "anon"
+    safe_filename = secure_filename(filename) or filename
+    return os.path.join(f"user_{user_id_short}", str(doc_id), safe_filename).replace("\\", "/")
+
+
+def build_blob_route_base(blob_name):
+    blob_prefix = os.path.dirname(blob_name).replace("\\", "/")
+    try:
+        return request.host_url.rstrip("/") + f"/api/documents/{blob_prefix}"
+    except RuntimeError:
+        return f"/api/documents/{blob_prefix}"
+
+
+def infer_content_type(filename):
+    lower_name = filename.lower()
+    if lower_name.endswith(".html") or lower_name.endswith(".htm"):
+        return "text/html; charset=utf-8"
+    if lower_name.endswith(".docx"):
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if lower_name.endswith(".pdf"):
+        return "application/pdf"
+    if lower_name.endswith(".png"):
+        return "image/png"
+    if lower_name.endswith(".jpg") or lower_name.endswith(".jpeg"):
+        return "image/jpeg"
+    if lower_name.endswith(".gif"):
+        return "image/gif"
+    if lower_name.endswith(".svg"):
+        return "image/svg+xml"
+    if lower_name.endswith(".css"):
+        return "text/css; charset=utf-8"
+    if lower_name.endswith(".js"):
+        return "application/javascript; charset=utf-8"
+    return "application/octet-stream"
+
+
+def upload_blob(blob_name, content, content_type=None):
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+
+    blob_client = get_blob_container_client().get_blob_client(blob_name)
+    blob_client.upload_blob(
+        content,
+        overwrite=True,
+        content_settings=ContentSettings(content_type=content_type or infer_content_type(blob_name)),
+    )
+    logger.info("Uploaded blob: %s", blob_name)
+    return blob_name
+
+
+def download_blob_bytes(blob_name):
+    blob_client = get_blob_container_client().get_blob_client(blob_name)
+    return blob_client.download_blob().readall()
+
+
+def download_blob_text(blob_name):
+    return download_blob_bytes(blob_name).decode("utf-8")
+
+
+def download_blob_prefix_to_directory(blob_prefix, target_directory):
+    container_client = get_blob_container_client()
+    prefix = blob_prefix.rstrip("/") + "/"
+
+    for blob in container_client.list_blobs(name_starts_with=prefix):
+        relative_path = blob.name[len(prefix):]
+        local_path = os.path.join(target_directory, relative_path.replace("/", os.sep))
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        with open(local_path, "wb") as file_handle:
+            file_handle.write(download_blob_bytes(blob.name))
+
+
+def upload_directory_to_blob(source_directory, blob_prefix):
+    for root, _, files in os.walk(source_directory):
+        for file_name in files:
+            if file_name in {"temp.docx", "temp.odt", "temp.html", "temp.pdf"}:
+                continue
+
+            local_path = os.path.join(root, file_name)
+            relative_path = os.path.relpath(local_path, source_directory).replace("\\", "/")
+            blob_name = f"{blob_prefix.rstrip('/')}/{relative_path}"
+            with open(local_path, "rb") as file_handle:
+                upload_blob(blob_name, file_handle.read())
 
 # -------------------------------------------------------
 # Fetch all documents for the current user
@@ -97,19 +214,13 @@ def convert_file(file, filename, input_format, output_format, cwd=os.getcwd()):
                 os.remove(temp_path)
 
 # -------------------------------------------------------
-# Save document file to disk
+# Save document file to Blob Storage
 # -------------------------------------------------------
 def save_document(file, filename, doc_id):
-    user_id_short = str(current_user.id)[:4] if current_user else "anon"
-    user_folder = os.path.join('documents', f'user_{user_id_short}', str(doc_id))
-    os.makedirs(user_folder, exist_ok=True)
-
-    file_path = os.path.join(user_folder, filename)
-    logger.info(f"Saving file to: {file_path}")
-    
-    with open(file_path, 'wb') as f:
-        f.write(file)
-    return file_path
+    blob_name = build_blob_name(doc_id, filename)
+    logger.info("Saving file to blob: %s", blob_name)
+    upload_blob(blob_name, file)
+    return blob_name
 
 # -------------------------------------------------------
 # Create a new document and HTML version for user
@@ -122,21 +233,21 @@ def create_document_for_user(session, file, filename):
     try:
         content = file.read()
         path = save_document(content, filename, doc_id)
-        
-        # Konvertáláshoz új BytesIO objektum kell a mentett tartalomból
-        file_for_conv = BytesIO(content)
-        html_file, html_filename = convert_file(file_for_conv, filename, 'docx', 'html', os.path.dirname(path))
-        
-        if not html_file:
-            logger.error(f"Initial HTML conversion failed for {filename}")
-            return None
 
-        base_url = "/api/" + os.path.dirname(path)
-        base_url = base_url.replace('\\', '/')
-        
-        logger.debug(f"Formatting HTML images with base_url: {base_url}")
-        html_file = format_image_srcs(html_file, base_url=base_url)
-        path_html = save_document(html_file, html_filename, doc_id)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file_for_conv = BytesIO(content)
+            html_file, html_filename = convert_file(file_for_conv, filename, 'docx', 'html', temp_dir)
+
+            if not html_file:
+                logger.error(f"Initial HTML conversion failed for {filename}")
+                return None
+
+            base_url = build_blob_route_base(path)
+            logger.debug(f"Formatting HTML images with base_url: {base_url}")
+            html_file = format_image_srcs(html_file, base_url=base_url)
+            path_html = save_document(html_file, html_filename, doc_id)
+
+            upload_directory_to_blob(temp_dir, os.path.dirname(path))
 
         new_document = Document(
             id=doc_id, user_id=current_user.id, 
@@ -172,10 +283,9 @@ def get_html_for_edit(session, doc_id):
         return None
 
     try:
-        with open(html_file_path[0], 'r', encoding='utf-8') as f:
-            return f.read()
+        return download_blob_text(html_file_path[0])
     except Exception as e:
-        logger.error(f"Could not read HTML file from disk: {html_file_path[0]}. Error: {str(e)}")
+        logger.error(f"Could not read HTML file from blob storage: {html_file_path[0]}. Error: {str(e)}")
         return None
 
 # -------------------------------------------------------
@@ -195,12 +305,11 @@ def save_html_content(session, doc_id, html_content):
         return jsonify({'error': 'Unauthorized'}), 403
 
     try:
-        with open(html.file_path, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        logger.info(f"HTML content successfully updated on disk: {html.file_path}")
+        upload_blob(html.file_path, html_content, content_type="text/html; charset=utf-8")
+        logger.info(f"HTML content successfully updated in blob storage: {html.file_path}")
         return jsonify({'message': 'Document updated successfully'}), 200
     except Exception as e:
-        logger.error(f"Disk write error during HTML save: {str(e)}")
+        logger.error(f"Blob write error during HTML save: {str(e)}")
         return jsonify({'error': 'Internal Server Error during save'}), 500
 
 # -------------------------------------------------------
@@ -221,20 +330,21 @@ def update_docx(session, doc_id):
         logger.error(f"Update DOCX failed: HTML not found for DocID {doc_id}")
         raise FileNotFoundError("HTML file not found for the given document ID.")
 
-    with open(html.file_path, 'rb') as f:
-        html_content = f.read()
+    prefix = os.path.dirname(html.file_path)
 
-    html_file_obj = BytesIO(html_content)
-    docx_content, _ = convert_file(html_file_obj, html.file_name, 'html', 'docx', os.path.dirname(html.file_path))
-    
-    if not docx_content:
-        logger.error("HTML to DOCX conversion failed during sync.")
-        raise FileNotFoundError("DOCX conversion failed.")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        download_blob_prefix_to_directory(prefix, temp_dir)
+        html_content = download_blob_bytes(html.file_path)
+        html_file_obj = BytesIO(html_content)
+        docx_content, _ = convert_file(html_file_obj, html.file_name, 'html', 'docx', temp_dir)
 
-    target_path = html.file_path.replace('.html', '.docx')
-    with open(target_path, 'wb') as f:
-        f.write(docx_content)
-    logger.info(f"DOCX updated successfully at: {target_path}")
+        if not docx_content:
+            logger.error("HTML to DOCX conversion failed during sync.")
+            raise FileNotFoundError("DOCX conversion failed.")
+
+        target_path = html.file_path.replace('.html', '.docx')
+        upload_blob(target_path, docx_content)
+        logger.info(f"DOCX updated successfully at: {target_path}")
 
 # -------------------------------------------------------
 # Update PDF from HTML
@@ -247,20 +357,21 @@ def update_pdf(session, doc_id):
         logger.error(f"PDF generation failed: HTML not found for DocID {doc_id}")
         raise FileNotFoundError("HTML file not found for the given document ID.")
 
-    with open(html.file_path, 'rb') as f:
-        html_content = f.read()
+    prefix = os.path.dirname(html.file_path)
 
-    html_file_obj = BytesIO(html_content)
-    pdf_content, _ = convert_file(html_file_obj, html.file_name, 'html', 'pdf', os.path.dirname(html.file_path))
-    
-    if not pdf_content:
-        logger.error("HTML to PDF conversion failed.")
-        raise FileNotFoundError("PDF conversion failed.")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        download_blob_prefix_to_directory(prefix, temp_dir)
+        html_content = download_blob_bytes(html.file_path)
+        html_file_obj = BytesIO(html_content)
+        pdf_content, _ = convert_file(html_file_obj, html.file_name, 'html', 'pdf', temp_dir)
 
-    target_path = html.file_path.replace('.html', '.pdf')
-    with open(target_path, 'wb') as f:
-        f.write(pdf_content)
-    logger.info(f"PDF generated successfully at: {target_path}")
+        if not pdf_content:
+            logger.error("HTML to PDF conversion failed.")
+            raise FileNotFoundError("PDF conversion failed.")
+
+        target_path = html.file_path.replace('.html', '.pdf')
+        upload_blob(target_path, pdf_content)
+        logger.info(f"PDF generated successfully at: {target_path}")
 
 # -------------------------------------------------------
 # Delete a document
@@ -275,16 +386,17 @@ def delete_document(session, doc_id):
         return False
 
     try:
-        doc_folder = os.path.dirname(doc.file_path)
-        if os.path.exists(doc_folder):
-            logger.info(f"Deleting folder from disk: {doc_folder}")
-            shutil.rmtree(doc_folder, ignore_errors=True)
+        doc_prefix = os.path.dirname(doc.file_path)
+        container_client = get_blob_container_client()
+        for blob in container_client.list_blobs(name_starts_with=f"{doc_prefix.rstrip('/')}/"):
+            logger.info(f"Deleting blob: {blob.name}")
+            container_client.delete_blob(blob.name)
 
         if html:
             session.delete(html)
         session.delete(doc)
         session.commit()
-        logger.info(f"Document {doc_id} successfully deleted from disk and DB.")
+        logger.info(f"Document {doc_id} successfully deleted from blob storage and DB.")
         return True
     except Exception as e:
         session.rollback()

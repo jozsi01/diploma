@@ -209,7 +209,7 @@ onUnmounted(() => {
 });
 
 async function addComment() {
-  const { data } = await customAxios.post('/comments', {
+  const { data } = await customAxios.post('/comments/', {
     document_id: props.document_id,
     content: commentContent.value,
 
