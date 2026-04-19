@@ -3,11 +3,13 @@ import uuid
 import subprocess
 import logging
 import tempfile
+from urllib.parse import urlparse, unquote
 from io import BytesIO
 import sys
 from flask import jsonify
 from flask import request
 from flask_jwt_extended import current_user
+from bs4 import BeautifulSoup
 from database.models import Document, HtmlFile, User, SharedDocument
 from sqlalchemy import and_
 from azure.core.exceptions import ResourceExistsError
@@ -136,6 +138,40 @@ def upload_directory_to_blob(source_directory, blob_prefix):
             with open(local_path, "rb") as file_handle:
                 upload_blob(blob_name, file_handle.read())
 
+
+def localize_html_asset_sources(html_content, local_directory):
+    """Replace remote asset URLs in HTML with local filenames when present in temp dir."""
+    try:
+        html_text = html_content.decode("utf-8") if isinstance(html_content, (bytes, bytearray)) else str(html_content)
+        soup = BeautifulSoup(html_text, "html.parser")
+        changed = False
+
+        # Handle typical static asset references used by converted HTML files.
+        tag_attr_pairs = (("img", "src"), ("link", "href"), ("script", "src"))
+        for tag_name, attr_name in tag_attr_pairs:
+            for tag in soup.find_all(tag_name):
+                raw_value = (tag.get(attr_name) or "").strip()
+                if not raw_value or raw_value.startswith("data:"):
+                    continue
+
+                parsed = urlparse(raw_value)
+                candidate_name = unquote(os.path.basename(parsed.path or raw_value))
+                if not candidate_name:
+                    continue
+
+                candidate_path = os.path.join(local_directory, candidate_name)
+                if os.path.exists(candidate_path):
+                    tag[attr_name] = candidate_name
+                    changed = True
+
+        if changed:
+            logger.debug("Localized HTML asset URLs to local temp files for conversion.")
+
+        return str(soup).encode("utf-8")
+    except Exception as e:
+        logger.warning("Could not localize HTML asset URLs, continuing with original HTML. Error: %s", str(e))
+        return html_content
+
 # -------------------------------------------------------
 # Fetch all documents for the current user
 # -------------------------------------------------------
@@ -198,7 +234,13 @@ def convert_file(file, filename, input_format, output_format, cwd=os.getcwd()):
             return converted_content, f'{clean_filename}.{output_format}'
 
     except subprocess.CalledProcessError as e:
-        logger.error(f"LibreOffice conversion failed! Stderr: {e.stderr}")
+        logger.error(
+            "LibreOffice conversion failed (%s -> %s). stdout=%s stderr=%s",
+            input_format,
+            output_format,
+            (e.stdout or "").strip(),
+            (e.stderr or "").strip(),
+        )
         return None, None
     except Exception as e:
         logger.error(f"Unexpected error during conversion: {str(e)}")
@@ -335,6 +377,7 @@ def update_docx(session, doc_id):
     with tempfile.TemporaryDirectory() as temp_dir:
         download_blob_prefix_to_directory(prefix, temp_dir)
         html_content = download_blob_bytes(html.file_path)
+        html_content = localize_html_asset_sources(html_content, temp_dir)
         html_file_obj = BytesIO(html_content)
         docx_content, _ = convert_file(html_file_obj, html.file_name, 'html', 'docx', temp_dir)
 
@@ -362,6 +405,7 @@ def update_pdf(session, doc_id):
     with tempfile.TemporaryDirectory() as temp_dir:
         download_blob_prefix_to_directory(prefix, temp_dir)
         html_content = download_blob_bytes(html.file_path)
+        html_content = localize_html_asset_sources(html_content, temp_dir)
         html_file_obj = BytesIO(html_content)
         pdf_content, _ = convert_file(html_file_obj, html.file_name, 'html', 'pdf', temp_dir)
 
