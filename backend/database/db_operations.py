@@ -3,6 +3,8 @@ import uuid
 import subprocess
 import logging
 import tempfile
+import base64
+import mimetypes
 from urllib.parse import urlparse, unquote
 from io import BytesIO
 import sys
@@ -140,14 +142,37 @@ def upload_directory_to_blob(source_directory, blob_prefix):
 
 
 def localize_html_asset_sources(html_content, local_directory):
-    """Replace remote asset URLs in HTML with local filenames when present in temp dir."""
+    """Replace asset URLs in HTML with local refs and embed images as data URIs."""
     try:
         html_text = html_content.decode("utf-8") if isinstance(html_content, (bytes, bytearray)) else str(html_content)
         soup = BeautifulSoup(html_text, "html.parser")
         changed = False
 
-        # Handle typical static asset references used by converted HTML files.
-        tag_attr_pairs = (("img", "src"), ("link", "href"), ("script", "src"))
+        # Embed image files to make the resulting DOCX self-contained for Word.
+        for img in soup.find_all("img"):
+            raw_value = (img.get("src") or "").strip()
+            if not raw_value or raw_value.startswith("data:"):
+                continue
+
+            parsed = urlparse(raw_value)
+            candidate_name = unquote(os.path.basename(parsed.path or raw_value))
+            if not candidate_name:
+                continue
+
+            candidate_path = os.path.join(local_directory, candidate_name)
+            if not os.path.exists(candidate_path):
+                continue
+
+            with open(candidate_path, "rb") as image_file:
+                image_bytes = image_file.read()
+
+            mime_type = mimetypes.guess_type(candidate_name)[0] or "application/octet-stream"
+            b64 = base64.b64encode(image_bytes).decode("ascii")
+            img["src"] = f"data:{mime_type};base64,{b64}"
+            changed = True
+
+        # Keep css/js references local when available.
+        tag_attr_pairs = (("link", "href"), ("script", "src"))
         for tag_name, attr_name in tag_attr_pairs:
             for tag in soup.find_all(tag_name):
                 raw_value = (tag.get(attr_name) or "").strip()
@@ -165,7 +190,7 @@ def localize_html_asset_sources(html_content, local_directory):
                     changed = True
 
         if changed:
-            logger.debug("Localized HTML asset URLs to local temp files for conversion.")
+            logger.debug("Localized HTML assets and embedded images for conversion.")
 
         return str(soup).encode("utf-8")
     except Exception as e:
