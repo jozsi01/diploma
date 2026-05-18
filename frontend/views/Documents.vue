@@ -11,40 +11,50 @@
         <CreateDocument />
 
         <h2 style="margin-top:40px;">Shared Documents</h2>
-        <h3> With Me</h3>
-        <Document @click="editDocument(doc.id)" v-for="doc in store.sharedDocumentsWithUser" :key="doc.id"
-            :documentId="doc.id" :title="doc.name" :createdAt="doc.created_at">
-            <template #share>
-                <p>Shared by: {{ doc.invited_by_user_name }}</p>
-            </template>
-            <template #action-buttons>
-                <Eye class="inspect-button" @click="inspectDoc" :size="32" />
-            </template>
-
-        </Document>
-
-
-        <h3> By Me</h3>
-
-
-
-        <template v-for="doc in store.sharedDocumentsByUser" :key="doc.doc.id">
-            <Document @click="toggleOpenDicId(doc.doc.id)" :documentId="doc.doc.id" :title="doc.doc.name"
-                :createdAt="doc.doc.created_at">
-                <template #action-buttons>
-                    <div>
-                    </div>
+        <div class="shared-tabs">
+            <span :class="['tab', { active: activeSharedTab === 'withMe' }]" @click="activeSharedTab = 'withMe'">With
+                Me</span>
+            <span :class="['tab', { active: activeSharedTab === 'byMe' }]" @click="activeSharedTab = 'byMe'">By
+                Me</span>
+        </div>
+        <div v-if="activeSharedTab === 'withMe'">
+            <Document @click="editDocument(doc.id)" v-for="doc in store.sharedDocumentsWithUser" :key="doc.id"
+                :documentId="doc.id" :title="doc.name" :createdAt="doc.created_at">
+                <template #share>
+                    <p>Shared by: {{ doc.invited_by_user_name }}</p>
                 </template>
+                <template #action-buttons>
+                    <Eye class="inspect-button" @click="inspectDoc" :size="32" />
+                </template>
+
             </Document>
-            <Transition name="persons">
-                <div class="personContainer" v-if="openDocID === doc.doc.id">
-                    <SharedWithPerson v-for="user in doc.shared_with" :key="user.id" :username="user.username"
-                        @click="selectedPerson = user; showRemoveModal = true" />
-                </div>
-            </Transition>
+        </div>
 
 
-        </template>
+
+        <div v-if="activeSharedTab === 'byMe'">
+            <template v-for="doc in store.sharedDocumentsByUser" :key="doc.doc.id">
+                <Document @click="toggleOpenDicId(doc.doc.id)" :documentId="doc.doc.id" :title="doc.doc.name"
+                    :createdAt="doc.doc.created_at">
+                    <template #action-buttons>
+                        <div>
+                        </div>
+                    </template>
+                </Document>
+                <Transition name="persons">
+                    <div class="personContainer" v-if="openDocID === doc.doc.id">
+                        <SharedWithPerson v-for="user in doc.shared_with" :key="user.id" :username="user.username"
+                            @click="selectedPerson = user; showRemoveModal = true" />
+                    </div>
+                </Transition>
+
+
+            </template>
+        </div>
+
+
+
+
         <Modal :show="showRemoveModal" @close="closeModal">
             <!-- Header -->
             <template #header>
@@ -68,7 +78,7 @@
                     <button class="btn cancel" @click="showRemoveModal = false">
                         Cancel
                     </button>
-                    
+
                 </div>
             </template>
         </Modal>
@@ -77,7 +87,7 @@
 
 
 
-</div>
+    </div>
 </template>
 
 <script setup>
@@ -94,7 +104,7 @@ import Modal from '../components/Modal.vue';
 const router = useRouter();
 
 const store = useStore();
-
+const activeSharedTab = ref('withMe');
 const isLoggedIn = ref(false); // Placeholder for actual authentication check
 function editDocument(docId) {
     router.push({ name: 'editor', params: { document_id: docId } });
@@ -185,6 +195,28 @@ onMounted(async () => {
     font: inherit;
 }
 
+.shared-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid #ccc;
+    margin-bottom: 16px;
+}
+
+.tab {
+    padding: 6px 16px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    color: #555;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+}
+
+.tab.active {
+    color: #2d5fa6;
+    border-bottom: 2px solid #2d5fa6;
+    font-weight: 500;
+}
+
 .inspect-button:hover {
     cursor: pointer;
     color: #0cb8fc;
@@ -219,69 +251,70 @@ onMounted(async () => {
     max-height: 500px;
     /* Should be higher than your expected content height */
 }
+
 .modal-header {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #2c3e50;
-  margin-bottom: 10px;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 10px;
 }
 
 .modal-body {
-  color: #555;
-  font-size: 1rem;
-  line-height: 1.5;
+    color: #555;
+    font-size: 1rem;
+    line-height: 1.5;
 }
 
 .username {
-  font-weight: 600;
-  color: #1a1a1a;
+    font-weight: 600;
+    color: #1a1a1a;
 }
 
 /* Footer layout */
 .modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
 }
 
 /* Buttons */
 .btn {
-  padding: 8px 16px;
-  font-size: 0.95rem;
-  font-weight: 500;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
+    padding: 8px 16px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
 }
 
 .btn.cancel {
-  background-color: #f0f0f0;
-  color: #333;
+    background-color: #f0f0f0;
+    color: #333;
 }
 
 .btn.cancel:hover {
-  background-color: #e0e0e0;
+    background-color: #e0e0e0;
 }
 
 .btn.remove {
-  background-color: #e74c3c;
-  color: white;
+    background-color: #e74c3c;
+    color: white;
 }
 
 .btn.remove:hover {
-  background-color: #c0392b;
+    background-color: #c0392b;
 }
 
 /* Optional: modal fade-in animation */
 .Modal-enter-active,
 .Modal-leave-active {
-  transition: opacity 0.3s ease;
+    transition: opacity 0.3s ease;
 }
 
 .Modal-enter-from,
 .Modal-leave-to {
-  opacity: 0;
+    opacity: 0;
 }
 </style>
