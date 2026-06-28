@@ -1,6 +1,6 @@
 from flask_jwt_extended import jwt_required, current_user
 from flask import Blueprint, jsonify, request
-from database.db_operations import get_shared_documents_by_user, share_document,get_shared_documents_with_user, save_html_content
+from database.db_operations import get_shared_documents_by_user, share_document,get_shared_documents_with_user, upload_blob
 from database.database import SessionLocal
 from database.models import Comment, Document, User, HtmlFile
 from sqlalchemy import and_
@@ -76,8 +76,13 @@ def save_comment():
             isInvited = True
         if not isInvited:
             return jsonify({'error': 'User is not invited to this document'}), 403
-        
-        return save_html_content(session, document_id, html_content)
+
+        html = session.query(HtmlFile).filter_by(doc_id=document_id).one_or_none()
+        if not html:
+            return jsonify({'error': 'HTML file not found'}), 404
+
+        upload_blob(html.file_path, html_content, content_type="text/html; charset=utf-8")
+        return jsonify({'message': 'Comment markup saved successfully'}), 200
     except Exception as e:
         session.rollback()
         print(f"Error saveing comment: {e}")

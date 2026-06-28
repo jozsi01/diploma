@@ -29,7 +29,6 @@ watch(() => store.comments, (newComments) => {
     props.editor.commands.insertContentAt(props.getPos(), props.node.textContent);
 
     props.deleteNode();
-    console.log("doc id: ", route.params.document_id);
     customAxios.put('/comments/save', {
       document_id: route.params.document_id,
       html_content: props.editor.getHTML(),
